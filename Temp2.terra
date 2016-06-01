@@ -1,0 +1,120 @@
+#include "/home/terra/TerraNG/terra/TerraNet.defs"
+
+var ubyte id = getNodeId();
+ 
+pktype msg_t from radioMsg with
+	var ubyte seq;
+	var ubyte l3_target;
+	var ubyte l3_source;
+	var ubyte a;
+	var ushort temp;
+	var ushort[3] t;
+end;
+var msg_t msg_data;
+
+#define MSG_DATA 0
+#define MSG_OGM 1 // Has no ACK (layer2 nor 3)
+#define MSG_ACK 2 // Layer 3
+#define MSG_TYPE_COUNT 3
+#define MAX_NODE_ID 88
+//#define MAX_NODES 64 // Maximum node count
+var ubyte[177] msg_seq; // (177 ==  (MSG_TYPE_COUNT -1) * MAX_NODE_ID + 1) ACK message uses the same seq # as DATA message
+var ubyte[89] next_hop; // (89 == MAX_NODE_ID + 1) L3 routing table
+//var ubyte[(MSG_TYPE_COUNT -1) * MAX_PATHS] msg_seq; // ACK message uses the same seq # as DATA message
+//var ubyte[MAX_NODES-1] next_hop; // L3 routing table
+
+// State initialization
+loop i,177 do
+	msg_seq[i] = 0;
+end
+
+loop i,89 do
+	next_hop[i] = 0;
+end
+
+// Start by sending OGM (build route / hop) table
+
+par do
+	loop do
+		if id == 11 then
+			await (id/100)s; // Lets not send all at once
+			msg_data.source = id;
+			msg_data.target = BROADCAST;
+			msg_data.type = MSG_OGM;
+			msg_data.l3_source = id;
+			var ubyte seq_id = id * MSG_OGM;
+			inc msg_seq[seq_id];
+			msg_data.seq = msg_seq[seq_id];
+			emit SEND(msg_data);
+			await SEND_DONE;
+			await FOREVER; // Replace this to get periodic OGMs
+		else
+			await FOREVER; // Only node 11 sends OGM
+		end
+	end
+with
+	loop do
+		var msg_t ogm;
+		ogm = await RECEIVE(MSG_OGM);
+		emit LED0(1); // DEBUG
+		var ubyte seq_id = MSG_OGM * ogm.l3_source;
+		if ogm.seq != msg_seq[seq_id] then
+			emit LED1(1); // DEBUG
+			msg_seq[seq_id] = ogm.seq;
+			next_hop[ogm.l3_source] = ogm.source;
+
+			// Repeat the OGM
+			ogm.target = BROADCAST;
+			ogm.source = id;
+			emit SEND(ogm);
+			await SEND_DONE;
+		end
+	end
+end
+
+
+
+//msg_data.a[0] = 0;
+//await (id)ms;
+//	par do
+//		loop do
+//			// Read temp and queue a message
+//			await 1s;
+//			emit REQ_TEMP();
+//			var ushort tValue = await TEMP();
+//			msg_data.source = id;
+//			msg_data.target = target;	
+//			msg_data.t[0] = tValue;
+//			msg_data.t[1] = id;
+//			msg_data.type = MSG_DATA;
+//			inc msg_seq[MSG_DATA];
+//			msg_data.seq = msg_seq[MSG_DATA];
+//			qPut(msg_data);
+//		end
+//	with
+//		// When we receive an ACK (or timeout), send the next message
+//		loop do
+//			var msg_t msg_in;
+//			par/or do
+//				loop do
+//					msg = await RECEIVE(MSG_ACK);
+//					if msg.seq
+//				
+//				
+//			with
+//				await 1s;
+//			end
+//		loop do
+//			var msg in = await RECEIVE();
+//			in.target = target;
+//			in.source = id;
+//		end
+//	with
+//		loop
+//			var msg m;
+//			
+//			emit SEND(in);
+//			await SEND_DONE;
+//		end
+//	end
+//
