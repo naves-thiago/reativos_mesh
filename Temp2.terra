@@ -75,8 +75,9 @@ with
 			ogm.target = BROADCAST;
 			ogm.source = id;
 			ogm.l2_source = id;
-			emit SEND(ogm);
-			await SEND_DONE;
+			qPut(ogm);
+			//emit SEND(ogm);
+			//await SEND_DONE;
 		end
 	end
 with
@@ -97,8 +98,9 @@ with
 				dat.target = hop;
 				dat.source = id;
 				dat.l2_source = id;
-				emit SEND_ACK(dat);
-				await SEND_DONE_ACK;
+				qPut(dat);
+				//emit SEND_ACK(dat);
+				//await SEND_DONE_ACK;
 				//emit SEND(dat);
 				//await SEND_DONE;
 			end
@@ -131,13 +133,30 @@ with
 			dat.l3_target = 11; // root node
 			dat.seq = msg_seq[seq_id];
 			dat.temp = tValue;
-			emit SEND_ACK(dat);
+			qPut(dat);
+			//emit SEND_ACK(dat);
 			//emit SEND(dat);
-			await SEND_DONE_ACK;
+			//await SEND_DONE_ACK;
 			//await SEND_DONE;
 			emit LED0(1); // DEBUG
 		end
 		await 1s;
+	end
+with
+	// Send all messages in the queue
+	var ubyte stat;
+	var msg_t dat; // data message
+	loop do
+		await Q_READY;
+		loop do
+			stat = qGet(dat);
+			if stat == SUCCESS then
+				emit SEND_ACK(dat);
+				await SEND_DONE_ACK;
+			else
+				break;
+			end
+		end
 	end
 end
 
