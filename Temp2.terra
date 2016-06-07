@@ -6,7 +6,7 @@ pktype msg_t from radioMsg with
 	var ubyte seq;
 	var ubyte l3_target;
 	var ubyte l3_source;
-	var ubyte a;
+	var ubyte l2_source;
 	var ushort temp;
 	var ushort[3] t;
 end;
@@ -28,21 +28,29 @@ loop i,177 do
 	msg_seq[i] = 0;
 end
 
-loop i,89 do
-	next_hop[i] = 0;
+// Node 11 is the root and should foward messages to 1
+if id != 11 then
+	loop i,89 do
+		next_hop[i] = 0;
+	end
+else
+	loop i,89 do
+		next_hop[i] = 1;
+	end
 end
 
 // Start by sending OGM (build route / hop) table
 
+await (id/100)s; // Lets not send all at once
 par do
 	loop do
 		if id == 11 then
-			await (id/100)s; // Lets not send all at once
 			msg_data.source = id;
+			msg_data.l2_source = id;
 			msg_data.target = BROADCAST;
 			msg_data.type = MSG_OGM;
-			msg_data.l3_source = id;
-			var ubyte seq_id = id * MSG_OGM;
+			msg_data.l3_source = 11;
+			var ubyte seq_id = MSG_OGM + (MSG_TYPE_COUNT -1) * id;
 			inc msg_seq[seq_id];
 			msg_data.seq = msg_seq[seq_id];
 			emit SEND(msg_data);
@@ -56,22 +64,82 @@ with
 	loop do
 		var msg_t ogm;
 		ogm = await RECEIVE(MSG_OGM);
-		emit LED0(1); // DEBUG
-		var ubyte seq_id = MSG_OGM * ogm.l3_source;
+		var ubyte seq_id = MSG_OGM + (MSG_TYPE_COUNT -1) * ogm.l3_source;
 		if ogm.seq != msg_seq[seq_id] then
 			emit LED1(1); // DEBUG
 			msg_seq[seq_id] = ogm.seq;
-			next_hop[ogm.l3_source] = ogm.source;
+			var ubyte l3src = ogm.l3_source;
+			next_hop[l3src] = ogm.l2_source; // WTF ! DO NOT USE next_hop[ogm.l3_source]
 
 			// Repeat the OGM
 			ogm.target = BROADCAST;
 			ogm.source = id;
+			ogm.l2_source = id;
 			emit SEND(ogm);
 			await SEND_DONE;
 		end
 	end
-end
+with
+	loop do
+		var msg_t dat;
+		dat = await RECEIVE(MSG_DATA);
+		var ubyte seq_id = MSG_DATA + (MSG_TYPE_COUNT-1) * dat.l3_source;
+		if dat.seq != msg_seq[seq_id] then
+			emit LED2(1); // DEBUG
+			msg_seq[seq_id] = dat.seq;
+			var ubyte l3src = dat.l3_source;
+			var ubyte hop = next_hop[l3src]; // WTF ! DO NOT USE next_hop[dat.l3_source]
+			if hop == 0 then
+				// We got data but no route to target (should never happen)
+				await 1s;
+			else
+				// Foward the message
+				dat.target = hop;
+				dat.source = id;
+				dat.l2_source = id;
+				emit SEND_ACK(dat);
+				await SEND_DONE_ACK;
+				//emit SEND(dat);
+				//await SEND_DONE;
+			end
+		end
+	end
+//with
+//ACK loop
+with
+	loop do
+//		if id != 22 then
+//			await FOREVER;
+//		end
+		var ubyte hop = next_hop[11]; // root node
+		//var ushort hop = BROADCAST; // root node
+		if hop == 0 then
+			// We have no route to target
+			emit LED0(0);
+		else
+			emit REQ_TEMP();
+			var ushort tValue = await TEMP();
+			var ubyte seq_id = MSG_DATA + (MSG_TYPE_COUNT-1) * id; // own sequence number
+			var msg_t dat; // data message
 
+			inc msg_seq[seq_id];
+			dat.type = MSG_DATA;
+			dat.source = id;
+			dat.l2_source = id;
+			dat.target = hop;
+			dat.l3_source = id;
+			dat.l3_target = 11; // root node
+			dat.seq = msg_seq[seq_id];
+			dat.temp = tValue;
+			emit SEND_ACK(dat);
+			//emit SEND(dat);
+			await SEND_DONE_ACK;
+			//await SEND_DONE;
+			emit LED0(1); // DEBUG
+		end
+		await 1s;
+	end
+end
 
 
 //msg_data.a[0] = 0;
