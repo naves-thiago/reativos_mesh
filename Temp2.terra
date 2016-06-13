@@ -84,16 +84,16 @@ with
 	loop do
 		var msg_t dat;
 		dat = await RECEIVE(MSG_DATA);
-		var ubyte seq_id = MSG_DATA + (MSG_TYPE_COUNT-1) * dat.l3_source;
-		if dat.seq != msg_seq[seq_id] then
-			emit LED2(1); // DEBUG
-			msg_seq[seq_id] = dat.seq;
-			var ubyte l3src = dat.l3_source;
-			var ubyte hop = next_hop[l3src]; // WTF ! DO NOT USE next_hop[dat.l3_source]
+		//var ubyte seq_id = MSG_DATA + (MSG_TYPE_COUNT-1) * dat.l3_source;
+		//if dat.seq != msg_seq[seq_id] then
+		//	msg_seq[seq_id] = dat.seq;
+			var ubyte l3tar = dat.l3_target;
+			var ubyte hop = next_hop[l3tar]; // WTF ! DO NOT USE next_hop[dat.l3_target]
 			if hop == 0 then
 				// We got data but no route to target (should never happen)
 				await 1s;
 			else
+				emit LED2(1); // DEBUG
 				// Foward the message
 				dat.target = hop;
 				dat.source = id;
@@ -104,17 +104,16 @@ with
 				//emit SEND(dat);
 				//await SEND_DONE;
 			end
-		end
+		//end
 	end
 //with
 //ACK loop
 with
 	loop do
-//		if id != 22 then
-//			await FOREVER;
-//		end
+		//if id != 44 then
+		//	await FOREVER;
+		//end
 		var ubyte hop = next_hop[11]; // root node
-		//var ushort hop = BROADCAST; // root node
 		if hop == 0 then
 			// We have no route to target
 			emit LED0(0);
@@ -134,25 +133,26 @@ with
 			dat.seq = msg_seq[seq_id];
 			dat.temp = tValue;
 			qPut(dat);
-			//emit SEND_ACK(dat);
-			//emit SEND(dat);
-			//await SEND_DONE_ACK;
-			//await SEND_DONE;
 			emit LED0(1); // DEBUG
 		end
-		await 1s;
+		await 4s;
 	end
 with
 	// Send all messages in the queue
 	var ubyte stat;
 	var msg_t dat; // data message
 	loop do
+		//var ushort r = random();
+		//r = r % 100;
+		//await (r)ms;
+		//await (id*100)ms;
 		await Q_READY;
 		loop do
 			stat = qGet(dat);
 			if stat == SUCCESS then
-				emit SEND_ACK(dat);
-				await SEND_DONE_ACK;
+				emit SEND(dat);
+				await SEND_DONE;
+				await (id*10)ms;
 			else
 				break;
 			end
