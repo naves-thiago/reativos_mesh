@@ -44,21 +44,25 @@ end
 await (id/100)s; // Lets not send all at once
 par do
 	loop do
-		if id == 11 then
+		//if id == 11 then
+			//await (id*10)ms;
 			msg_data.source = id;
 			msg_data.l2_source = id;
 			msg_data.target = BROADCAST;
 			msg_data.type = MSG_OGM;
-			msg_data.l3_source = 11;
+			msg_data.l3_source = id;
 			var ubyte seq_id = MSG_OGM + (MSG_TYPE_COUNT -1) * id;
 			inc msg_seq[seq_id];
 			msg_data.seq = msg_seq[seq_id];
 			emit SEND(msg_data);
 			await SEND_DONE;
-			await FOREVER; // Replace this to get periodic OGMs
-		else
-			await FOREVER; // Only node 11 sends OGM
-		end
+			//qPut(msg_data);
+			//emit LED2(1);
+			//await FOREVER; // Replace this to get periodic OGMs
+			await 10s;
+	//	else
+	//		await FOREVER; // Only node 11 sends OGM
+	//	end
 	end
 with
 	loop do
@@ -66,7 +70,9 @@ with
 		ogm = await RECEIVE(MSG_OGM);
 		var ubyte seq_id = MSG_OGM + (MSG_TYPE_COUNT -1) * ogm.l3_source;
 		if ogm.seq != msg_seq[seq_id] then
-			emit LED1(1); // DEBUG
+			if ogm.l3_source == 44 then //DEBUG
+				emit LED1(1); // DEBUG
+			end
 			msg_seq[seq_id] = ogm.seq;
 			var ubyte l3src = ogm.l3_source;
 			next_hop[l3src] = ogm.l2_source; // WTF ! DO NOT USE next_hop[ogm.l3_source]
@@ -76,8 +82,6 @@ with
 			ogm.source = id;
 			ogm.l2_source = id;
 			qPut(ogm);
-			//emit SEND(ogm);
-			//await SEND_DONE;
 		end
 	end
 with
@@ -89,30 +93,42 @@ with
 		//	msg_seq[seq_id] = dat.seq;
 			var ubyte l3tar = dat.l3_target;
 			var ubyte hop = next_hop[l3tar]; // WTF ! DO NOT USE next_hop[dat.l3_target]
-			if hop == 0 then
-				// We got data but no route to target (should never happen)
-				await 1s;
-			else
-				emit LED2(1); // DEBUG
-				// Foward the message
-				dat.target = hop;
-				dat.source = id;
-				dat.l2_source = id;
-				qPut(dat);
-				//emit SEND_ACK(dat);
-				//await SEND_DONE_ACK;
-				//emit SEND(dat);
-				//await SEND_DONE;
+			if l3tar == id then
+				// Message is for us, send an ack (if we have a route to the source)
+				var ubyte ack_tar = dat.l3_source;
+				if next_hop[ack_tar] != 0 then
+					var msg_t ack;
+					ack.type = MSG_ACK;
+					ack.seq = dat.seq;
+					ack.source = id;
+					ack.target = next_hop[ack_tar];
+					ack.l3_target = ack_tar;
+					ack.l3_source = id;
+					ack.l2_source = id;
+					emit LED2(1); // DEBUG
+					qPut(ack);
+				end
+			end
+			if (l3tar != id) or (id == 11) then
+				// Not for us, send to the next hop
+				if hop == 0 then
+					// We got data but no route to target (should never happen)
+					await 1s;
+				else
+					// Foward the message
+					dat.target = hop;
+					dat.source = id;
+					dat.l2_source = id;
+					qPut(dat);
+				end
 			end
 		//end
 	end
-//with
-//ACK loop
 with
 	loop do
-		//if id != 44 then
-		//	await FOREVER;
-		//end
+		if id != 44 then
+			await FOREVER;
+		end
 		var ubyte hop = next_hop[11]; // root node
 		if hop == 0 then
 			// We have no route to target
@@ -147,61 +163,43 @@ with
 		//await (r)ms;
 		//await (id*100)ms;
 		await Q_READY;
+		stat = qGet(dat);
 		loop do
-			stat = qGet(dat);
 			if stat == SUCCESS then
-				emit SEND(dat);
-				await SEND_DONE;
-				await (id*10)ms;
+				var ubyte i = 0;
+				loop do // To send up to 3 times
+					if i == 3 then
+						break;
+					end
+					inc i;
+					par/or do
+						emit SEND(dat);
+						await SEND_DONE;
+
+						// Wait for ACK from root
+						var msg_t ack;
+						loop do
+							ack = await RECEIVE(MSG_ACK);
+							// ACK has the same sequence number as the DATA
+							var ubyte seq_id = MSG_DATA + (MSG_TYPE_COUNT-1) * ack.l3_source;
+							if (ack.seq != msg_seq[seq_id]) and (ack.l3_target == id) then
+								msg_seq[seq_id] = ack.seq;
+								emit LED1(1); // DEBUG
+								break;
+							end
+						end
+					with
+						// ACK timeout
+						await 5s;
+					end
+				end
 			else
+				// End of queue
 				break;
 			end
+			// Get the next from the queue
+			stat = qGet(dat);
+			await (id*10)ms;
 		end
 	end
 end
-
-
-//msg_data.a[0] = 0;
-//await (id)ms;
-//	par do
-//		loop do
-//			// Read temp and queue a message
-//			await 1s;
-//			emit REQ_TEMP();
-//			var ushort tValue = await TEMP();
-//			msg_data.source = id;
-//			msg_data.target = target;	
-//			msg_data.t[0] = tValue;
-//			msg_data.t[1] = id;
-//			msg_data.type = MSG_DATA;
-//			inc msg_seq[MSG_DATA];
-//			msg_data.seq = msg_seq[MSG_DATA];
-//			qPut(msg_data);
-//		end
-//	with
-//		// When we receive an ACK (or timeout), send the next message
-//		loop do
-//			var msg_t msg_in;
-//			par/or do
-//				loop do
-//					msg = await RECEIVE(MSG_ACK);
-//					if msg.seq
-//				
-//				
-//			with
-//				await 1s;
-//			end
-//		loop do
-//			var msg in = await RECEIVE();
-//			in.target = target;
-//			in.source = id;
-//		end
-//	with
-//		loop
-//			var msg m;
-//			
-//			emit SEND(in);
-//			await SEND_DONE;
-//		end
-//	end
-//
